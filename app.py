@@ -4,11 +4,11 @@ import pandas as pd
 import numpy as np
 
 # 1. 網頁基礎設定
-st.set_page_config(page_title="Christine Lin 財運汪汪系統", layout="wide", page_icon="🧧")
+st.set_page_config(page_title="Christine財運汪汪選股所與回測系統", layout="wide", page_icon="🧧")
 
 st.markdown("""
-    <h1 style='text-align: center; color: #FF4B4B;'>💰 Christine Lin 選股與回測系統</h1>
-    <p style='text-align: center; font-weight: bold;'>—— 永久免費雲端版 ——</p>
+    <h1 style='text-align: center; color: #FF4B4B;'>💰 Christine財運汪汪選股所與回測系統</h1>
+    <p style='text-align: center; font-weight: bold;'>—— 用紀律選股，用心等待，汪汪不亂買 ——</p>
     """, unsafe_allow_html=True)
 
 # 2. 側邊欄：名單輸入與回測設定
