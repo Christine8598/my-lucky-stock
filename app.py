@@ -4,73 +4,99 @@ import pandas as pd
 import numpy as np
 
 # 1. 網頁基礎設定
-st.set_page_config(page_title="Christine 財運回測系統", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Christine Lin 財運汪汪系統", layout="wide", page_icon="🧧")
 
-st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>📈 Christine 策略歷史回測</h1>", unsafe_allow_html=True)
+st.markdown("""
+    <h1 style='text-align: center; color: #FF4B4B;'>💰 Christine Lin 選股與回測系統</h1>
+    <p style='text-align: center; font-weight: bold;'>—— 永久免費雲端版 ——</p>
+    """, unsafe_allow_html=True)
 
-# 側邊欄設定
-st.sidebar.header("🧧 設定回測參數")
-target_stock = st.sidebar.text_input("輸入回測代碼 (單一)", value="2330")
+# 2. 側邊欄：名單輸入與回測設定
+st.sidebar.header("🧧 財運清單設定")
+input_stocks = st.sidebar.text_area("輸入台股代碼 (逗號隔開)", value="2330, 2603, 2317, 2454, 3231")
+stock_list = [s.strip() for s in input_stocks.split(",") if s.strip()]
+
+st.sidebar.markdown("---")
+st.sidebar.header("📊 回測參數設定")
 hold_days = st.sidebar.slider("買入後持有天數", 5, 20, 10)
 
-def run_backtest(sid):
+# --- 核心邏輯函數 ---
+def analyze_stock(sid):
     try:
         ticker = yf.Ticker(f"{sid}.TW")
-        df = ticker.history(period="2y", auto_adjust=False)
-        if df.empty or len(df) < 100: return None
-        
-        # 計算指標
+        df = ticker.history(period="1y", auto_adjust=False)
+        if df.empty or len(df) < 60: return None
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
-        df['Prev_MA60'] = df['MA60'].shift(5)
+        last, prev = df.iloc[-1], df.iloc[-2]
+        prev_ma60 = df['MA60'].iloc[-5]
+        bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
+        
+        score = 0
+        if last['MA20'] > last['MA60']: score += 25
+        if last['MA60'] > prev_ma60: score += 25
+        if last['Volume']/1000 > 1000: score += 20
+        if bias < 10: score += 10
+        
+        buy_note = "整理中"
+        if 0 < bias <= 3:
+            score += 20
+            buy_note = "🎯 絕佳買點"
+        elif bias > 10: buy_note = "🚨 乖離過大"
+        
+        if last['Volume'] < prev['Volume']: score -= 10
+        score = max(0, min(100, score))
+
+        return {
+            "代碼": sid, "現價": round(last['Close'], 2), "20MA乖離": f"{round(bias, 2)}%",
+            "財運得分": score, "買點判定": buy_note, "參考停損": round(last['MA20'] * 0.97, 2)
+        }
+    except: return None
+
+# --- 第一部分：選股總覽 ---
+if st.button("🧧 執行 100 分財運掃描"):
+    results = [analyze_stock(sid) for sid in stock_list if analyze_stock(sid)]
+    if results:
+        st.subheader("📋 財運精選總覽 (滿分 100)")
+        res_df = pd.DataFrame(results)
+        st.dataframe(res_df.style.background_gradient(subset=['財運得分'], cmap='YlOrRd'))
+        
+        st.subheader("🔍 趨勢圖表分析")
+        tabs = st.tabs(stock_list)
+        for i, sid in enumerate(stock_list):
+            with tabs[i]:
+                data = yf.Ticker(f"{sid}.TW").history(period="100d")
+                data['MA20'] = data['Close'].rolling(20).mean()
+                data['MA60'] = data['Close'].rolling(60).mean()
+                st.line_chart(data[['Close', 'MA20', 'MA60']])
+
+# --- 第二部分：歷史回測專區 ---
+st.markdown("---")
+st.subheader("📊 歷史勝率回測 (根據『絕佳買點』訊號)")
+bt_stock = st.selectbox("選擇要回測的代碼", stock_list)
+
+if st.button(f"🚀 開始回測 {bt_stock} 過去兩年勝率"):
+    with st.spinner('正在分析歷史數據...'):
+        ticker = yf.Ticker(f"{bt_stock}.TW")
+        df = ticker.history(period="2y", auto_adjust=False)
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA60'] = df['Close'].rolling(60).mean()
         df['Bias'] = ((df['Close'] - df['MA20']) / df['MA20']) * 100
-        df['Vol_Prev'] = df['Volume'].shift(1)
+        # 訊號：多頭排列 + 買點區(0-3%)
+        df['Signal'] = (df['MA20'] > df['MA60']) & (df['Bias'] > 0) & (df['Bias'] <= 3)
         
-        # 定義策略訊號 (簡化版 100 分邏輯)
-        # 1. 趨勢多頭 2. MA60向上 3. 買點區(0-3%)
-        df['Signal'] = (df['MA20'] > df['MA60']) & \
-                       (df['MA60'] > df['Prev_MA60']) & \
-                       (df['Bias'] > 0) & (df['Bias'] <= 3) & \
-                       (df['Volume'] > df['Vol_Prev'])
-        
-        # 紀錄交易結果
         trades = []
         for i in range(len(df) - hold_days):
             if df['Signal'].iloc[i]:
-                entry_price = df['Close'].iloc[i]
-                exit_price = df['Close'].iloc[i + hold_days]
-                return_pct = ((exit_price - entry_price) / entry_price) * 100
-                trades.append(return_pct)
+                entry = df['Close'].iloc[i]
+                exit = df['Close'].iloc[i + hold_days]
+                trades.append(((exit - entry) / entry) * 100)
         
-        if not trades: return "無訊號"
-        
-        win_rate = len([r for r in trades if r > 0]) / len(trades) * 100
-        avg_return = np.mean(trades)
-        return {"win_rate": win_rate, "avg_return": avg_return, "count": len(trades), "trades": trades}
-    except Exception as e:
-        return str(e)
-
-# 顯示回測結果
-if st.button(f"🚀 開始回測 {target_stock} 過去兩年勝率"):
-    with st.spinner('正在穿越時空計算中...'):
-        result = run_backtest(target_stock)
-        
-        if isinstance(result, dict):
-            col1, col2, col3 = st.columns(3)
-            col1.metric("策略勝率", f"{round(result['win_rate'], 1)}%")
-            col2.metric("平均報酬", f"{round(result['avg_return'], 2)}%")
-            col3.metric("訊號次數", f"{result['count']} 次")
-            
-            # 畫出報酬率分布圖
-            st.subheader("📊 每次交易獲利分布 (%)")
-            st.bar_chart(result['trades'])
-            
-            if result['win_rate'] >= 60:
-                st.success(f"🎊 財運驚人！{target_stock} 非常適合這個策略。")
-            else:
-                st.warning(f"💡 提醒：{target_stock} 過去表現一般，建議搭配其他指標。")
+        if trades:
+            win_rate = len([r for r in trades if r > 0]) / len(trades) * 100
+            col1, col2 = st.columns(2)
+            col1.metric("策略勝率", f"{round(win_rate, 1)}%")
+            col2.metric("平均報酬", f"{round(np.mean(trades), 2)}%")
+            st.bar_chart(trades)
         else:
-            st.info(f"掃描完成：過去兩年 {target_stock} 在妳的嚴格條件下沒有出現買點，或資料不足。")
-
-st.markdown("---")
-st.caption("註：回測數據僅供參考，過去績效不保證未來獲利。")
+            st.info("過去兩年該股未出現符合『絕佳買點』的訊號。")
