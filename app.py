@@ -89,36 +89,43 @@ else:
 
 st.markdown("---")
 
-# B. 全台股掃描區 (狗狗奔跑特效)
+# --- B. 全台股掃描區 (超跑穩定版) ---
 st.subheader("🐕‍🦺 發現新骨頭 (全台股雷達)")
+
+# 使用 st.status 可以讓妳在點擊後立刻看到一個摺疊的進度區塊
 if st.button("🔥 啟動全台股汪汪大掃描"):
-    # 獲取清單
-    url = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
-    response = requests.get(url, verify=False)
-    response.encoding = 'big5'
-    df_list = pd.read_html(response.text)[0]
-    df_list.columns = df_list.iloc[0]
-    codes = df_list['有價證券代號及名稱'].str.split('　', expand=True)[0].tolist()
-    clean_codes = [c for c in codes if len(str(c)) == 4 and str(c).isdigit() and not str(c).startswith('28')][:300]
-    
-    progress_bar = st.progress(0)
-    dog_status = st.empty()
-    found = []
-    
-    for i, code in enumerate(clean_codes):
-        progress = (i + 1) / len(clean_codes)
-        num_spaces = int(progress * 35)
-        dog_status.markdown(f"**{'&nbsp;' * num_spaces}🐕💨 正在嗅探 {code}...**")
-        progress_bar.progress(progress)
+    with st.status("🐕 狗狗正在穿鞋子，準備出發...", expanded=True) as status:
+        all_codes = get_all_stock_list()
+        # 為了速度，我們先從最活躍的 200 檔開始，這通常涵蓋了 80% 的成交量
+        scan_pool = all_codes[:200] 
+        total = len(scan_pool)
         
-        item = diagnose_stock(code)
-        if item and item['判定'] == "🟢 適合買入":
-            found.append(item)
-    
-    dog_status.success("✨ 汪！前 300 檔活躍股掃描完成！")
-    if found:
-        st.table(pd.DataFrame(found)[["代碼", "現價", "汪汪指令", "停損價"]])
+        progress_bar = st.progress(0)
+        dog_runner = st.empty()
+        found_list = []
+        
+        for i, code in enumerate(scan_pool):
+            # 立即更新狀態
+            progress = (i + 1) / total
+            num_spaces = int(progress * 35)
+            # 在狀態欄位顯示狗狗正在嗅探哪一檔
+            dog_runner.markdown(f"**{'&nbsp;' * num_spaces}🐕💨 正在嗅探 {code}...**")
+            progress_bar.progress(progress)
+            
+            res = diagnose_stock(code)
+            if res and res['判定'] == "🟢 適合買入":
+                found_list.append(res)
+            
+            # 稍微調整頻率，避免被擋
+            if i % 20 == 0:
+                time.sleep(0.05)
+        
+        status.update(label="✅ 汪！掃描完成！快看下面的好骨頭！", state="complete", expanded=False)
+
+    if found_list:
+        st.write("### 🏆 狗狗幫妳選出的精華骨頭")
+        st.table(pd.DataFrame(found_list)[["代碼", "現價", "汪汪指令", "停損價"]])
     else:
-        st.warning("這區沒找到適合買入的骨頭汪！")
+        st.warning("這區暫時沒發現好骨頭，狗狗等等再去別條街看看。")
 
 st.caption(f"🕒 台灣時間：{now_str} | 汪汪選股所，祝主人發大財！")
