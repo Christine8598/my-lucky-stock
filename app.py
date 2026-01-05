@@ -1,36 +1,34 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+from datetime import datetime
 
 # 1. 網頁基礎設定
-st.set_page_config(page_title="Christine財運汪汪選股系統", layout="wide", page_icon="🎯")
+st.set_page_config(page_title="Christine財運汪汪選股所", layout="wide", page_icon="🏮")
 
-st.markdown("<h1 style='text-align: center; color: #E91E63;'>🎯 Christine財運汪汪選股系統</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>已自動剔除金融股，只掃描產業龍頭與強勢電子股</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #E91E63;'>🏮 Christine財運汪汪選股所</h1>", unsafe_allow_html=True)
 
-# 2. 定義 300 檔不含金融股的掃描池 (產業龍頭、AI概念、半導體、航運、傳產)
-# 已手動過濾掉 28 開頭的金融股代碼
-TOTAL_POOL = [
-    # --- 半導體與電子代工 ---
-    "2330", "2317", "2454", "2308", "2382", "2303", "2357", "2324", "2353", "2301",
-    "3711", "2408", "3034", "3037", "2379", "3231", "3017", "3324", "3533", "3661",
-    "6669", "2345", "6235", "3035", "3443", "8046", "3131", "2377", "2356", "2360",
-    "2449", "2451", "3006", "3583", "6187", "6415", "6515", "8069", "8299", "2409",
-    "3481", "6116", "2392", "2474", "3008", "3406", "3515", "4919", "4958", "4961",
-    # --- 航運與傳產鋼鐵 ---
-    "2603", "2609", "2615", "2618", "2610", "2002", "2006", "2014", "2027", "2031",
-    "1301", "1303", "1326", "1319", "1101", "1102", "1216", "1227", "1402", "1476",
-    "1477", "9904", "9910", "9921", "9945", "6505", "1722", "1717", "1710", "1712",
-    # --- 電機、重電與能源 ---
-    "1513", "1504", "1519", "1514", "1503", "1560", "2371", "1605", "1608", "1609",
-    # --- 這裡可持續按此邏輯補足至 300 檔 ---
-    "6239", "6409", "8050", "3044", "2385", "6213", "3023", "2347", "2458", "5269"
-]
-
-# 3. 決策核心引擎 (維持直覺判定)
-def get_action_decision(sid):
+# --- 2. 獲取全台股清單 (排除金融) ---
+@st.cache_data(ttl=3600)
+def get_all_stock_list():
     try:
-        df = yf.Ticker(f"{sid}.TW").history(period="120d", auto_adjust=True)
+        # 抓取上市櫃整合清單
+        url = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
+        df = pd.read_html(url)[0]
+        df.columns = df.iloc[0]
+        df = df.iloc[1:]
+        stocks = df['有價證券代號及名稱'].str.split('　', expand=True)
+        stocks.columns = ['code', 'name']
+        # 篩選4碼代號且排除28開頭金融股
+        clean_list = stocks[(stocks['code'].str.len() == 4) & (~stocks['code'].str.startswith('28'))]
+        return clean_list['code'].tolist()
+    except:
+        return ["2330", "2317", "2454", "2603", "3037", "3231", "1513", "2382", "3017"]
+
+# --- 3. 核心診斷引擎 (包含原因判定) ---
+def diagnose_stock(sid):
+    try:
+        df = yf.Ticker(f"{sid}.TW").history(period="100d")
         if len(df) < 60: return None
         
         c = df['Close'].iloc[-1]
@@ -38,46 +36,63 @@ def get_action_decision(sid):
         ma60 = df['Close'].rolling(60).mean().iloc[-1]
         bias = ((c - ma20) / ma20) * 100
         
-        # 過濾邏輯：只顯示趨勢向上且安全的
-        if c < ma20 or ma20 < ma60: return None
-        
-        if 0 < bias <= 3.5:
-            status = "🟢 安全買點"
-            action = "位置極佳，可分批佈局"
-        elif 3.5 < bias <= 6.0:
-            status = "🟡 稍漲觀望"
-            action = "漲了一小段，等回檔再試"
+        # 判定邏輯
+        if c > ma20 and ma20 > ma60 and 0 < bias <= 3.5:
+            status = "🟢 建議買進"
+            reason = "趨勢向上且回檔到安全區，風險低"
+        elif c > ma20 and ma20 > ma60 and 3.5 < bias <= 6:
+            status = "🟡 稍微觀望"
+            reason = "趨勢對但稍微漲高，建議等拉回"
         else:
-            return None # 漲太高的直接隱藏，避免追價風險
+            return None # 不符合條件的不顯示
             
         return {
-            "股票": sid,
+            "代碼": sid,
             "判定": status,
-            "行動建議": action,
-            "現在價格": round(c, 1),
-            "破此價跑路 (停損)": round(ma20 * 0.95, 1)
+            "原因說明": reason,
+            "目前價格": round(c, 1),
+            "破此價格跑路": round(ma20 * 0.95, 1)
         }
     except: return None
 
-# --- UI 介面 ---
-if st.button("🚀 啟動 300 檔『非金融股』黃金雷達"):
-    progress_bar = st.progress(0)
-    found = []
-    status_text = st.empty()
-    
-    for idx, sid in enumerate(TOTAL_POOL):
-        status_text.text(f"掃描中：{sid}...")
-        res = get_action_decision(sid)
-        if res: found.append(res)
-        progress_bar.progress((idx + 1) / len(TOTAL_POOL))
-    
-    status_text.text("✅ 掃描完成！")
-    
-    if found:
-        st.subheader("📋 符合獲利條件的『產業金股』名單")
-        st.table(pd.DataFrame(found).sort_values(by="判定", ascending=False))
+# --- 4. 介面呈現 ---
+
+# A. 個股搜尋區
+st.subheader("🔍 單一股票深度診斷")
+search_id = st.text_input("輸入股票代碼：", placeholder="例如: 3037")
+if search_id:
+    res = diagnose_stock(search_id)
+    if res:
+        st.success(f"### 【{search_id}】診斷結果：{res['判定']}")
+        st.write(f"💡 **原因：** {res['原因說明']}")
+        st.write(f"💰 **建議操作：** 現價 {res['目前價格']}，停損設在 {res['破此價格跑路']}")
     else:
-        st.info("目前 300 檔標的中無符合安全買點的股票。")
+        st.error(f"❌ 【{search_id}】目前不在買點，或趨勢向下，建議先不要碰。")
 
 st.markdown("---")
-st.caption("註：本系統已排除所有 28 開頭之金融股。")
+
+# B. 全台股掃描區
+st.subheader("🚀 全台股自動掃描 (排除金融股)")
+now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+st.write(f"🕒 資料更新時間：{now}")
+
+if st.button("啟動全台股雷達 (掃描1700+檔)"):
+    all_codes = get_all_stock_list()
+    progress_bar = st.progress(0)
+    found_list = []
+    
+    # 執行掃描
+    status_text = st.empty()
+    for i, code in enumerate(all_codes):
+        if i % 10 == 0: status_text.text(f"正在分析第 {i}/{len(all_codes)} 檔...")
+        res = diagnose_stock(code)
+        if res: found_list.append(res)
+        progress_bar.progress((i + 1) / len(all_codes))
+        
+    status_text.text("✅ 掃描完成！")
+    
+    if found_list:
+        st.write(f"共找到 {len(found_list)} 檔符合獲利條件的股票：")
+        st.table(pd.DataFrame(found_list))
+    else:
+        st.warning("今天市場氣氛不佳，沒有符合安全買點的股票。")
