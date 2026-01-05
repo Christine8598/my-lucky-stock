@@ -1,6 +1,6 @@
 streamlit
 yfinance
 pandas
-pandas-datareader
 lxml
 html5lib
+requests
