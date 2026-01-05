@@ -111,7 +111,11 @@ if st.button("🔥 啟動全台股汪汪大掃描"):
         st.table(pd.DataFrame(found_list))
     else:
         st.warning("嗚...今天市場裡沒有狗狗想啃的骨頭，建議主人先休息。")
+import datetime
+
+# 設定台灣時區偏移量 (UTC+8)
+tw_time = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+now_str = tw_time.strftime("%Y-%m-%d %H:%M:%S")
 
 st.markdown("---")
-now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-st.caption(f"🕒 最後更新時間：{now} | 汪汪選股所，祝主人發大財！")
+st.caption(f"🕒 最後更新時間 (台灣)：{now_str} | 汪汪選股所，祝主人發大財！")
