@@ -3,100 +3,75 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-# 1. 網頁基礎設定
-st.set_page_config(page_title="Christine財運汪汪選股所與回測系統", layout="wide", page_icon="🧧")
+# 1. 系統設定
+st.set_page_config(page_title="Christine財運汪汪實戰決策系統", layout="wide", page_icon="⚖️")
 
 st.markdown("""
-    <h1 style='text-align: center; color: #FF4B4B;'>💰 Christine財運汪汪選股所與回測系統</h1>
-    <p style='text-align: center; font-weight: bold;'>—— 用紀律選股，用心等待，汪汪不亂買 ——</p>
+    <h1 style='text-align: center; color: #1E88E5;'>⚖️ Christine 實戰決策輔助系統</h1>
+    <p style='text-align: center;'><b>拒絕主觀偏好：基於統計數據與大盤濾網的紀律工具</b></p>
     """, unsafe_allow_html=True)
 
-# 2. 側邊欄：名單輸入與回測設定
-st.sidebar.header("🧧 財運清單設定")
-input_stocks = st.sidebar.text_area("輸入台股代碼 (逗號隔開)", value="2330, 2603, 2317, 2454, 3231")
-stock_list = [s.strip() for s in input_stocks.split(",") if s.strip()]
+# 2. 自動掃描池 (台灣權值股)
+DEFAULT_POOL = ["2330", "2317", "2454", "2308", "2382", "2603", "2609", "3231", "1513", "1504", "2357"]
 
-st.sidebar.markdown("---")
-st.sidebar.header("📊 回測參數設定")
-hold_days = st.sidebar.slider("買入後持有天數", 5, 20, 10)
-
-# --- 核心邏輯函數 ---
-def analyze_stock(sid):
+# 3. 大盤絕對濾網 (強迫風控)
+def check_market_gate():
     try:
-        ticker = yf.Ticker(f"{sid}.TW")
-        df = ticker.history(period="1y", auto_adjust=False)
-        if df.empty or len(df) < 60: return None
-        df['MA20'] = df['Close'].rolling(20).mean()
-        df['MA60'] = df['Close'].rolling(60).mean()
-        last, prev = df.iloc[-1], df.iloc[-2]
-        prev_ma60 = df['MA60'].iloc[-5]
-        bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
-        
-        score = 0
-        if last['MA20'] > last['MA60']: score += 25
-        if last['MA60'] > prev_ma60: score += 25
-        if last['Volume']/1000 > 1000: score += 20
-        if bias < 10: score += 10
-        
-        buy_note = "整理中"
-        if 0 < bias <= 3:
-            score += 20
-            buy_note = "🎯 絕佳買點"
-        elif bias > 10: buy_note = "🚨 乖離過大"
-        
-        if last['Volume'] < prev['Volume']: score -= 10
-        score = max(0, min(100, score))
+        m = yf.Ticker("^TWII").history(period="60d")
+        is_safe = m['Close'].iloc[-1] > m['Close'].rolling(20).mean().iloc[-1]
+        return is_safe, m['Close'].iloc[-1]
+    except: return False, 0
 
-        return {
-            "代碼": sid, "現價": round(last['Close'], 2), "20MA乖離": f"{round(bias, 2)}%",
-            "財運得分": score, "買點判定": buy_note, "參考停損": round(last['MA20'] * 0.97, 2)
-        }
+market_safe, mkt_price = check_market_gate()
+
+# 4. 核心邏輯：多維度評估 (非主觀加分)
+def advanced_rank(sid):
+    try:
+        df = yf.Ticker(f"{sid}.TW").history(period="150d", auto_adjust=True)
+        if len(df) < 60: return None
+        
+        # 指標計算
+        c = df['Close']
+        ma20 = c.rolling(20).mean()
+        ma60 = c.rolling(60).mean()
+        
+        # A. 趨勢維度 (昨收盤資料)
+        is_bull = (ma20.iloc[-1] > ma60.iloc[-1]) and (ma60.iloc[-1] > ma60.iloc[-5])
+        # B. 買點維度 (乖離率)
+        bias = ((c.iloc[-1] - ma20.iloc[-1]) / ma20.iloc[-1]) * 100
+        # C. 動能維度 (成交量變化)
+        vol_up = df['Volume'].iloc[-1] > df['Volume'].rolling(5).mean().iloc[-1]
+        
+        # 篩選條件 (不再給分，改為門檻制)
+        if is_bull and (0 < bias <= 4):
+            return {
+                "代碼": sid,
+                "收盤價": round(c.iloc[-1], 2),
+                "MA20乖離": f"{round(bias, 2)}%",
+                "動能狀態": "🔥 放量" if vol_up else "⚪ 平淡",
+                "執行策略": "明日開盤分批進場",
+                "嚴格停損價": round(ma20.iloc[-1] * 0.95, 2)
+            }
     except: return None
 
-# --- 第一部分：選股總覽 ---
-if st.button("🧧 執行 100 分財運掃描"):
-    results = [analyze_stock(sid) for sid in stock_list if analyze_stock(sid)]
-    if results:
-        st.subheader("📋 財運精選總覽 (滿分 100)")
-        res_df = pd.DataFrame(results)
-        st.dataframe(res_df.style.background_gradient(subset=['財運得分'], cmap='YlOrRd'))
-        
-        st.subheader("🔍 趨勢圖表分析")
-        tabs = st.tabs(stock_list)
-        for i, sid in enumerate(stock_list):
-            with tabs[i]:
-                data = yf.Ticker(f"{sid}.TW").history(period="100d")
-                data['MA20'] = data['Close'].rolling(20).mean()
-                data['MA60'] = data['Close'].rolling(60).mean()
-                st.line_chart(data[['Close', 'MA20', 'MA60']])
-
-# --- 第二部分：歷史回測專區 ---
-st.markdown("---")
-st.subheader("📊 歷史勝率回測 (根據『絕佳買點』訊號)")
-bt_stock = st.selectbox("選擇要回測的代碼", stock_list)
-
-if st.button(f"🚀 開始回測 {bt_stock} 過去兩年勝率"):
-    with st.spinner('正在分析歷史數據...'):
-        ticker = yf.Ticker(f"{bt_stock}.TW")
-        df = ticker.history(period="2y", auto_adjust=False)
-        df['MA20'] = df['Close'].rolling(20).mean()
-        df['MA60'] = df['Close'].rolling(60).mean()
-        df['Bias'] = ((df['Close'] - df['MA20']) / df['MA20']) * 100
-        # 訊號：多頭排列 + 買點區(0-3%)
-        df['Signal'] = (df['MA20'] > df['MA60']) & (df['Bias'] > 0) & (df['Bias'] <= 3)
-        
-        trades = []
-        for i in range(len(df) - hold_days):
-            if df['Signal'].iloc[i]:
-                entry = df['Close'].iloc[i]
-                exit = df['Close'].iloc[i + hold_days]
-                trades.append(((exit - entry) / entry) * 100)
-        
-        if trades:
-            win_rate = len([r for r in trades if r > 0]) / len(trades) * 100
-            col1, col2 = st.columns(2)
-            col1.metric("策略勝率", f"{round(win_rate, 1)}%")
-            col2.metric("平均報酬", f"{round(np.mean(trades), 2)}%")
-            st.bar_chart(trades)
+# --- UI 介面 ---
+if not market_safe:
+    st.error(f"🛑 大盤收盤價 ({round(mkt_price,0)}) 跌破月線：系統已鎖定，空頭環境不建議任何買入操作。")
+else:
+    st.success("✅ 大盤趨勢向上：雷達掃描權限已開啟。")
+    if st.button("🚀 執行昨日收盤數據雷達"):
+        results = [advanced_rank(sid) for sid in DEFAULT_POOL if advanced_rank(sid)]
+        if results:
+            st.subheader("📋 符合『縮量回測支撐』個股")
+            st.table(pd.DataFrame(results))
+            st.warning("⚠️ 警告：以上結果基於昨日收盤，今日開盤若跳空開高 > 2% 則不建議追價。")
         else:
-            st.info("過去兩年該股未出現符合『絕佳買點』的訊號。")
+            st.info("目前無符合『低風險回測區』之標的。")
+
+st.markdown("---")
+st.markdown("""
+### 📢 投資風險揭露與免責聲明
+* **時間落後性**：本系統所有資料均為「盤後資料」，不代表今日盤中走勢。
+* **非投資建議**：系統得分與判定僅為技術指標之統計結果，不保證獲利。
+* **風險控管**：投資人應自行設定停損點，並嚴格執行。
+""")
