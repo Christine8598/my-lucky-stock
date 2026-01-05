@@ -5,7 +5,7 @@ import datetime
 import requests
 import ssl
 
-# 解決環境問題
+# 環境與時區設定
 ssl._create_default_https_context = ssl._create_unverified_context
 tw_time = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
 now_str = tw_time.strftime("%Y-%m-%d %H:%M:%S")
@@ -15,9 +15,9 @@ st.markdown("<h1 style='text-align: center; color: #FF69B4;'>🐾 Christine 財�
 
 # --- 1. 庫存管理功能 (Session State) ---
 if 'my_stocks' not in st.session_state:
-    st.session_state.my_stocks = {} # 格式: {"2330": 600.0, "3037": 220.0}
+    st.session_state.my_stocks = {}
 
-# --- 2. 核心診斷引擎 ---
+# --- 2. 核心診斷引擎 (加強賣點計算) ---
 def diagnose_stock(sid, cost=0):
     try:
         df = yf.Ticker(f"{sid}.TW").history(period="100d")
@@ -28,33 +28,34 @@ def diagnose_stock(sid, cost=0):
         ma60 = df['Close'].rolling(60).mean().iloc[-1]
         bias = ((c - ma20) / ma20) * 100
         
+        # 直觀賣點計算
+        take_profit_price = round(ma20 * 1.1, 1) # 停利價：月線+10%
+        stop_loss_price = round(ma20, 1)          # 停損價：月線位置
+        
         status = "🟡 繼續觀察"
-        advice = "目前趨勢中性，不急著動作。"
+        advice = f"建議：{stop_loss_price} 守住續抱"
         color = "gray"
         
-        # 買賣建議邏輯
         if c < ma20:
             status = "🚨 汪！建議賣出"
-            advice = "跌破月線支撐，保護財運先撤退！"
-            color = "red"
+            advice = f"🚨 跌破 {stop_loss_price} 快跑！"
         elif bias > 10:
             status = "🎁 汪！建議停利"
-            advice = "漲幅已高，先啃下一半獲利吧！"
-            color = "blue"
+            advice = f"🎁 已過 {take_profit_price} 落袋為安"
         elif c > ma20 and ma20 > ma60 and 0 < bias <= 5:
-            status = "🟢 汪！適合持有/買入"
-            advice = "趨勢向上且位置安全，狗狗很放心。"
-            color = "green"
+            status = "🟢 汪！適合持有"
+            advice = "趨勢安全，放心睡覺"
             
         res = {
             "代碼": sid,
             "現價": round(c, 1),
             "判定": status,
-            "分析": advice,
+            "汪汪指令": advice,
+            "停利目標(參考)": take_profit_price,
+            "停損防線(月線)": stop_loss_price,
             "乖離": f"{round(bias, 1)}%"
         }
         
-        # 如果有成本，計算損益
         if cost > 0:
             profit = ((c - cost) / cost) * 100
             res["我的成本"] = cost
@@ -65,24 +66,33 @@ def diagnose_stock(sid, cost=0):
 
 # --- 3. 介面呈現 ---
 
-# 側邊欄：庫存登記處
+# 側邊欄：管理庫存
 with st.sidebar:
-    st.header("🦴 我的汪汪庫存登記")
-    new_code = st.text_input("輸入買進代碼", placeholder="例如: 3037")
+    st.header("🦴 庫存管理登記")
+    new_code = st.text_input("輸入代碼", placeholder="例如: 2603")
     new_price = st.number_input("買進價格", value=0.0)
     if st.button("➕ 加入庫存"):
         if new_code and new_price > 0:
             st.session_state.my_stocks[new_code] = new_price
             st.success(f"汪！已加入 {new_code}")
+            st.rerun()
 
     if st.session_state.my_stocks:
         st.write("---")
-        if st.button("🗑️ 清空庫存"):
+        st.subheader("🗑️ 快速刪除單筆")
+        # 讓使用者選擇要刪除哪一檔
+        del_code = st.selectbox("選擇要丟掉的骨頭", options=list(st.session_state.my_stocks.keys()))
+        if st.button("❌ 刪除這筆庫存"):
+            del st.session_state.my_stocks[del_code]
+            st.warning(f"汪！已丟掉 {del_code}")
+            st.rerun()
+            
+        if st.button("🧨 全部清空"):
             st.session_state.my_stocks = {}
             st.rerun()
 
 # A. 我的庫存監控區
-st.subheader("📋 我的汪汪庫存監控")
+st.subheader("📋 我的汪汪庫存監控 (直觀賣點版)")
 if st.session_state.my_stocks:
     my_data = []
     for sid, cost in st.session_state.my_stocks.items():
@@ -90,15 +100,18 @@ if st.session_state.my_stocks:
         if res: my_data.append(res)
     
     if my_data:
-        st.table(pd.DataFrame(my_data))
+        # 整理顯示順序，讓最重要的指令排前面
+        df_display = pd.DataFrame(my_data)
+        cols = ["代碼", "現價", "我的成本", "損益%", "汪汪指令", "停利目標(參考)", "停損防線(月線)", "判定"]
+        st.table(df_display[cols])
 else:
     st.info("目前庫存空空，快去左側登記妳買入的股票吧！")
 
 st.markdown("---")
 
-# B. 全台股搜尋 (保留原有功能)
+# B. 全台股搜尋
 st.subheader("🐕‍🦺 發現新骨頭 (全台股掃描)")
-if st.button("🔥 啟動汪汪雷達"):
-    st.write("狗狗出發搜尋中... (請耐心等候 1700 檔掃描)")
+if st.button("🔥 啟動汪汪大掃描"):
+    st.write("狗狗正在全台大街小巷搜尋符合安全買點的股票中...")
 
-st.caption(f"🕒 台灣時間：{now_str} | 汪！讓狗狗幫妳守護每一根骨頭！")
+st.caption(f"🕒 台灣時間：{now_str} | 汪！學會看數字賣出，才是真的發財汪！")
