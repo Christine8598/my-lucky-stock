@@ -119,8 +119,8 @@ with st.sidebar:
 # --- 4. 主畫面 ---
 st.markdown(f"<h1 style='text-align: center; color: #FF69B4;'>🐾 Christine 財運汪汪選股所 🐾</h1>", unsafe_allow_html=True)
 
-# 【上層：永久庫存卡片】
-st.subheader("📋 我的骨頭倉庫")
+# 【上層：永久庫存卡片】 (保持不變)
+st.subheader("📋 我的永久記憶庫存")
 if st.session_state.my_stocks:
     cols = st.columns(4)
     for i, (sid, cost) in enumerate(st.session_state.my_stocks.items()):
@@ -129,23 +129,26 @@ if st.session_state.my_stocks:
             with cols[i % 4]:
                 st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{round(res['損益%'],2)}%")
                 with st.expander("🔍 深度分析"):
-                    st.write(f"**財運得分:** {res['得分']} / 100")
-                    st.write(f"**風險程度:** {res['風險']}")
-                    st.write(f"**買點判定:** {res['買點']}")
-else: st.info("💡 汪！目前沒有存檔的骨頭。")
+                    st.write(f"**得分:** {res['得分']} | **風險:** {res['風險']}")
+                    st.write(f"**判定:** {res['買點']}")
+else: st.info("💡 目前沒有存檔的骨頭汪。")
 
 st.markdown("---")
 
-# 【下層：不中斷掃描雷達】
+# 【下層：不中斷掃描雷達 - 優化版】
 st.subheader("🐕‍🦺 全台股地毯雷達")
-if st.button("🚀 啟動掃描 (掃描中可同時登記庫存)"):
+
+# 用一個 container 來統一管理顯示區域
+scan_container = st.container()
+
+if st.button("🚀 啟動全台掃描"):
     codes = get_stock_list()
     status_area = st.empty()
     progress_bar = st.progress(0)
     found = []
     
-    # 用你最愛的這段邏輯：動態顯示進度並即時更新結果
-    results_display = st.empty()
+    # 建立一個佔位空間，專門用來放表格
+    table_placeholder = st.empty()
     
     for i, c in enumerate(codes):
         progress = (i + 1) / len(codes)
@@ -154,22 +157,25 @@ if st.button("🚀 啟動掃描 (掃描中可同時登記庫存)"):
             status_area.markdown(f"🐕 狗狗巡邏中... 當前進度: **{int(progress*100)}%** ({c})")
         
         r = diagnose_with_soul(c)
-        # 篩選：強勢股且得分較高
+        # 篩選：強勢且得分 >= 75
         if r and "🟢" in r["判定"] and r["得分"] >= 75:
             found.append(r)
-            # 即時更新給主人看
             st.session_state.scan_results = found 
-            with results_display.container():
-                st.write(f"### 🏆 掃描中... 已發現 {len(found)} 檔高品質骨頭")
+            # 即時在佔位空間更新表格內容
+            with table_placeholder.container():
+                st.write(f"### 🏆 已發現 {len(found)} 檔高品質骨頭")
                 df_temp = pd.DataFrame(found)[["代碼", "現價", "得分", "風險", "買點", "乖離"]]
-                st.table(df_temp.tail(10)) # 顯示最新發現的10筆
+                st.table(df_temp.tail(15)) # 掃描時顯示最新發現的 15 筆，避免頁面拉太長
             
-    status_area.success("✅ 全台巡邏完畢！")
+    status_area.success(f"✅ 全台巡邏完畢！共計發現 {len(found)} 檔。")
+    # 掃描結束後，把佔位空間換成完整的總表
+    with table_placeholder.container():
+        st.write(f"### 🏁 全台巡邏總表 (共 {len(found)} 檔)")
+        st.dataframe(pd.DataFrame(found)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
-# 最終掃描結果固定顯示
-if st.session_state.scan_results:
-    st.write("---")
-    st.write(f"### 🏁 全台巡邏總表 (共 {len(st.session_state.scan_results)} 檔)")
-    st.table(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
+# 如果頁面重新整理，但之前已經有掃描結果，就顯示出來（這能保證結果不消失）
+elif st.session_state.scan_results:
+    st.write(f"### 🏁 上次巡邏結果 (共 {len(st.session_state.scan_results)} 檔)")
+    st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
