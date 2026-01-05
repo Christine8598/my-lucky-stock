@@ -64,7 +64,7 @@ def diagnose_with_soul(sid, buy_p=0):
         if last['Volume']/1000 > 1000: score += 20
         if bias < 10: score += 10
         
-        buy_note = "整理中"
+        buy_note = "🐾建議稍等回檔"
         if 0 < bias <= 3.5:
             score += 20
             buy_note = "🎯 絕佳買點"
@@ -136,12 +136,12 @@ else: st.info("💡 目前沒有存檔的骨頭汪。")
 st.markdown("---")
 
 # 【下層：不中斷掃描雷達 - 優化版】
-st.subheader("🐕‍🦺 全台股地毯雷達")
+st.subheader("🐕‍🦺 汪星人台股尋寶雷達")
 
 # 用一個 container 來統一管理顯示區域
 scan_container = st.container()
 
-if st.button("🚀 啟動全台掃描"):
+if st.button("🚀 啟動全台尋寶"):
     codes = get_stock_list()
     status_area = st.empty()
     progress_bar = st.progress(0)
@@ -167,10 +167,10 @@ if st.button("🚀 啟動全台掃描"):
                 df_temp = pd.DataFrame(found)[["代碼", "現價", "得分", "風險", "買點", "乖離"]]
                 st.table(df_temp.tail(15)) # 掃描時顯示最新發現的 15 筆，避免頁面拉太長
             
-    status_area.success(f"✅ 全台巡邏完畢！共計發現 {len(found)} 檔。")
+    status_area.success(f"✅ 全台尋寶完畢！共計發現 {len(found)} 檔。")
     # 掃描結束後，把佔位空間換成完整的總表
     with table_placeholder.container():
-        st.write(f"### 🏁 全台巡邏總表 (共 {len(found)} 檔)")
+        st.write(f"### 🏁 全台尋寶總表 (共 {len(found)} 檔)")
         st.dataframe(pd.DataFrame(found)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 # 如果頁面重新整理，但之前已經有掃描結果，就顯示出來（這能保證結果不消失）
@@ -179,4 +179,5 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
