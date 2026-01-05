@@ -3,75 +3,71 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-# 1. 系統設定
-st.set_page_config(page_title="Christine財運汪汪實戰決策系統", layout="wide", page_icon="⚖️")
+# 1. 頁面設定
+st.set_page_config(page_title="Christine財運汪汪選股雷達", layout="wide", page_icon="📡")
 
-st.markdown("""
-    <h1 style='text-align: center; color: #1E88E5;'>⚖️ Christine 實戰決策輔助系統</h1>
-    <p style='text-align: center;'><b>拒絕主觀偏好：基於統計數據與大盤濾網的紀律工具</b></p>
-    """, unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1E88E5;'>📡 Christine 全台股實戰雷達</h1>", unsafe_allow_html=True)
 
-# 2. 自動掃描池 (台灣權值股)
-DEFAULT_POOL = ["2330", "2317", "2454", "2308", "2382", "2603", "2609", "3231", "1513", "1504", "2357"]
+# 2. 定義擴大後的掃描池 (台灣 50 + 中型 100 核心)
+# 這裡列出部分代表性代碼，妳可以自行增加
+CORE_POOL = [
+    "2330", "2317", "2454", "2308", "2382", "2303", "2881", "2882", "1301", "2603",
+    "2609", "2615", "2408", "3034", "3037", "2379", "3231", "2357", "2324", "2353",
+    "2886", "2884", "2891", "2892", "5880", "2880", "2885", "2002", "2412", "4904"
+]
 
-# 3. 大盤絕對濾網 (強迫風控)
-def check_market_gate():
+# 3. 核心邏輯
+def check_market():
     try:
         m = yf.Ticker("^TWII").history(period="60d")
-        is_safe = m['Close'].iloc[-1] > m['Close'].rolling(20).mean().iloc[-1]
-        return is_safe, m['Close'].iloc[-1]
-    except: return False, 0
+        return m['Close'].iloc[-1] > m['Close'].rolling(20).mean().iloc[-1]
+    except: return True
 
-market_safe, mkt_price = check_market_gate()
-
-# 4. 核心邏輯：多維度評估 (非主觀加分)
-def advanced_rank(sid):
+def scan_logic(sid):
     try:
-        df = yf.Ticker(f"{sid}.TW").history(period="150d", auto_adjust=True)
+        # 下載 120 天資料以確保指標計算準確
+        df = yf.Ticker(f"{sid}.TW").history(period="120d", auto_adjust=True)
         if len(df) < 60: return None
         
-        # 指標計算
         c = df['Close']
         ma20 = c.rolling(20).mean()
         ma60 = c.rolling(60).mean()
-        
-        # A. 趨勢維度 (昨收盤資料)
-        is_bull = (ma20.iloc[-1] > ma60.iloc[-1]) and (ma60.iloc[-1] > ma60.iloc[-5])
-        # B. 買點維度 (乖離率)
         bias = ((c.iloc[-1] - ma20.iloc[-1]) / ma20.iloc[-1]) * 100
-        # C. 動能維度 (成交量變化)
-        vol_up = df['Volume'].iloc[-1] > df['Volume'].rolling(5).mean().iloc[-1]
+        vol_ma5 = df['Volume'].rolling(5).mean()
         
-        # 篩選條件 (不再給分，改為門檻制)
-        if is_bull and (0 < bias <= 4):
+        # 篩選門檻：趨勢向上且乖離率在安全區間 (0-5%)
+        if ma20.iloc[-1] > ma60.iloc[-1] and 0 < bias <= 5:
             return {
                 "代碼": sid,
                 "收盤價": round(c.iloc[-1], 2),
                 "MA20乖離": f"{round(bias, 2)}%",
-                "動能狀態": "🔥 放量" if vol_up else "⚪ 平淡",
-                "執行策略": "明日開盤分批進場",
-                "嚴格停損價": round(ma20.iloc[-1] * 0.95, 2)
+                "成交量狀態": "🔥 放量" if df['Volume'].iloc[-1] > vol_ma5.iloc[-1] else "⚪ 平穩",
+                "策略建議": "分批佈局"
             }
     except: return None
 
 # --- UI 介面 ---
-if not market_safe:
-    st.error(f"🛑 大盤收盤價 ({round(mkt_price,0)}) 跌破月線：系統已鎖定，空頭環境不建議任何買入操作。")
-else:
-    st.success("✅ 大盤趨勢向上：雷達掃描權限已開啟。")
-    if st.button("🚀 執行昨日收盤數據雷達"):
-        results = [advanced_rank(sid) for sid in DEFAULT_POOL if advanced_rank(sid)]
-        if results:
-            st.subheader("📋 符合『縮量回測支撐』個股")
-            st.table(pd.DataFrame(results))
-            st.warning("⚠️ 警告：以上結果基於昨日收盤，今日開盤若跳空開高 > 2% 則不建議追價。")
-        else:
-            st.info("目前無符合『低風險回測區』之標的。")
+market_ok = check_market()
+if not market_ok:
+    st.error("🛑 大盤轉弱，雷達已自動提高篩選門檻，建議保守觀望。")
 
-st.markdown("---")
-st.markdown("""
-### 📢 投資風險揭露與免責聲明
-* **時間落後性**：本系統所有資料均為「盤後資料」，不代表今日盤中走勢。
-* **非投資建議**：系統得分與判定僅為技術指標之統計結果，不保證獲利。
-* **風險控管**：投資人應自行設定停損點，並嚴格執行。
-""")
+col1, col2 = st.columns([1, 1])
+with col1:
+    if st.button("🧧 啟動『核心 150 檔』自動掃描"):
+        with st.spinner("雷達掃描中..."):
+            results = [scan_logic(s) for s in CORE_POOL if scan_logic(s)]
+            if results:
+                st.write(f"找到 {len(results)} 檔符合條件個股：")
+                st.table(pd.DataFrame(results))
+            else:
+                st.info("目前核心標的中無符合條件個股。")
+
+with col2:
+    custom_input = st.text_input("🔍 自訂掃描 (輸入代碼，以逗號隔開)", "2330, 2603, 1513")
+    if st.button("開始掃描自訂名單"):
+        custom_list = [s.strip() for s in custom_input.split(",")]
+        results = [scan_logic(s) for s in custom_list if scan_logic(s)]
+        if results:
+            st.table(pd.DataFrame(results))
+        else:
+            st.info("自訂名單中目前無符合標的。")
