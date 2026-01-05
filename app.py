@@ -1,152 +1,158 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import datetime
-import requests
-import ssl
-import time
 import numpy as np
 import json
 import os
+import time
 
-# --- 0. 基礎設定與 SSL 修復 ---
-try:
-    _create_unverified_https_context = ssl._create_unverified_context
-except AttributeError: pass
-else: ssl._create_default_https_context = _create_unverified_https_context
+# --- 1. 基礎設定與永久記憶功能 ---
+st.set_page_config(page_title="Christine 財運汪汪系統", layout="wide", page_icon="🐶")
 
-st.set_page_config(page_title="Christine 財運汪汪選股所", layout="wide", page_icon="🐶")
-
-# --- 1. 永久記憶功能：檔案存取 ---
 DB_FILE = "my_stock_memory.json"
 
 def load_memory():
     if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DB_FILE, "r") as f:
+                return json.load(f)
+        except: return {}
     return {}
 
 def save_memory(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
 
-# 初始化記憶
+# 初始化 Session State
 if 'my_stocks' not in st.session_state:
     st.session_state.my_stocks = load_memory()
-if 'scan_results' not in st.session_state:
-    st.session_state.scan_results = None
 
-# --- 2. 核心診斷邏輯 ---
-def diagnose_with_soul(sid, buy_p=0):
+# --- 2. 核心邏輯函數 (結合計分、回測與骨頭風險) ---
+def analyze_stock_full(sid, buy_p=0):
     try:
-        df = yf.Ticker(f"{sid}.TW").history(period="100d")
+        ticker = yf.Ticker(f"{sid}.TW")
+        df = ticker.history(period="1y", auto_adjust=False)
         if df.empty or len(df) < 60: return None
-        c = df['Close'].iloc[-1]
-        ma20 = df['Close'].rolling(20).mean().iloc[-1]
-        ma60 = df['Close'].rolling(60).mean().iloc[-1]
-        bias = ((c - ma20) / ma20) * 100
+        
+        # 指標計算
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA60'] = df['Close'].rolling(60).mean()
+        last, prev = df.iloc[-1], df.iloc[-2]
+        bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
+        
+        # 🦴 骨頭風險評估 (基於波動率)
         returns = df['Close'].pct_change().dropna()
         volatility = returns.std() * np.sqrt(252) * 100
-        score = min(5, max(1, int(volatility / 10)))
+        bone_count = min(5, max(1, int(volatility / 10)))
+        bones = "🦴" * bone_count
         
-        analysis = ""
-        if c > ma20 and ma20 > ma60:
-            if bias <= 3: analysis = f"🐾 **黃金起跑點**：剛從月線爬起來，安全埋伏區汪！"
-            else: analysis = f"🏃 **穩定慢跑中**：趨勢順暢，適合續抱看表演！"
-        elif c < ma20: analysis = f"🚨 **掉進坑裡了**：已跌破月線 ({round(ma20,1)})，要小心停損！"
-        else: analysis = "🌫️ **霧中散步**：方向不明，建議先觀望汪！"
+        # 💯 100 分計分邏輯
+        score = 0
+        if last['MA20'] > last['MA60']: score += 25
+        if last['MA60'] > df['MA60'].iloc[-5]: score += 25
+        if last['Volume']/1000 > 1000: score += 20
+        if bias < 10: score += 10
+        
+        buy_note = "整理中"
+        if 0 < bias <= 3.5:
+            score += 20
+            buy_note = "🎯 絕佳買點"
+        elif bias > 10: buy_note = "🚨 乖離過大"
+        if last['Volume'] < prev['Volume']: score -= 10
+        score = max(0, min(100, score))
 
         res = {
-            "代碼": sid, "現價": round(c, 1), "判定": "🟢 強勢" if c > ma20 else "🔴 轉弱",
-            "深度分析": analysis, "風險等級": "🦴" * score, "防守價": round(ma20, 1), "乖離": f"{round(bias, 1)}%"
+            "代碼": sid, "現價": round(last['Close'], 1), "得分": score,
+            "買點": buy_note, "風險": bones, "乖離": f"{round(bias, 1)}%",
+            "MA20": round(last['MA20'], 1)
         }
         if buy_p > 0:
-            res["損益%"] = ((c - buy_p) / buy_p) * 100
+            res["損益%"] = ((last['Close'] - buy_p) / buy_p) * 100
             res["成本"] = buy_p
         return res
     except: return None
 
-@st.cache_data(ttl=3600)
-def get_stock_list():
-    try:
-        url = "https://isin.twse.com.tw/isin/C_public.jsp?strMode=2"
-        response = requests.get(url, verify=False, timeout=10)
-        response.encoding = 'big5'
-        df = pd.read_html(response.text)[0]
-        df.columns = df.iloc[0]
-        codes = df.iloc[1:]['有價證券代號及名稱'].str.split('　', expand=True)[0]
-        return [c for c in codes.tolist() if len(str(c)) == 4 and str(c).isdigit() and not str(c).startswith('28')]
-    except: return ["2330", "2317", "2454", "2603", "3037"]
-
-# --- 3. 側邊欄 ---
+# --- 3. 側邊欄：庫存登記與回測參數 ---
 with st.sidebar:
-    st.title("🦴 汪汪庫存登記")
-    # 這裡直接用文字輸入，不放在 Form 裡可以減少干擾
-    sc = st.text_input("股票代碼")
+    st.title("🐶 汪汪庫存登記")
+    sc = st.text_input("股票代碼 (例: 2330)")
     sp = st.number_input("買進成本", min_value=0.0, step=0.1)
-    if st.button("➕ 寫入記憶存檔"):
+    if st.button("➕ 存入永久記憶"):
         if sc and sp > 0:
             st.session_state.my_stocks[sc] = sp
-            save_memory(st.session_state.my_stocks) # 存入檔案
-            st.success(f"汪！{sc} 已存入永久記憶！")
+            save_memory(st.session_state.my_stocks)
+            st.success(f"汪！{sc} 已記憶")
             time.sleep(1)
             st.rerun()
 
     if st.session_state.my_stocks:
         st.write("---")
-        del_t = st.selectbox("移除：", list(st.session_state.my_stocks.keys()))
-        if st.button("❌ 刪除並更新檔案"):
+        del_t = st.selectbox("移除庫存：", list(st.session_state.my_stocks.keys()))
+        if st.button("❌ 刪除紀錄"):
             del st.session_state.my_stocks[del_t]
-            save_memory(st.session_state.my_stocks) # 更新檔案
+            save_memory(st.session_state.my_stocks)
             st.rerun()
 
-# --- 4. 主畫面 ---
-st.markdown(f"<h1 style='text-align: center; color: #FF69B4;'>🐾 Christine 財運汪汪選股所 🐾</h1>", unsafe_allow_html=True)
+    st.write("---")
+    st.header("📊 回測設定")
+    hold_days = st.sidebar.slider("買入後持有天數", 5, 20, 10)
+    stop_loss = st.sidebar.slider("強制停損 %", 3, 10, 5)
 
-# 【上層：永久庫存卡片】
+# --- 4. 主畫面 ---
+st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>💰 Christine 財運汪汪終極系統</h1>", unsafe_allow_html=True)
+
+# 【上層：指標卡片顯示庫存】
 st.subheader("📋 我的永久記憶庫存")
 if st.session_state.my_stocks:
-    items = list(st.session_state.my_stocks.items())
     cols = st.columns(4)
-    for i, (sid, cost) in enumerate(items):
-        res = diagnose_with_soul(sid, cost)
+    for i, (sid, cost) in enumerate(st.session_state.my_stocks.items()):
+        res = analyze_stock_full(sid, cost)
         if res:
             with cols[i % 4]:
-                p_color = "inverse" if res["損益%"] > 0 else "normal"
-                st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{round(res['損益%'],2)}%", delta_color=p_color)
-                with st.expander("🔍 深度分析"):
-                    st.write(f"**風險:** {res['風險等級']}")
-                    st.write(res["深度分析"])
-else: st.info("💡 汪！目前沒有存檔的骨頭。")
+                st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{round(res['損益%'],2)}%")
+                with st.expander("🔍 詳細診斷"):
+                    st.write(f"**得分:** {res['得分']} / 100")
+                    st.write(f"**風險:** {res['風險']}")
+                    st.write(f"**判定:** {res['買點']}")
+                    st.write(f"**停損建議:** {round(res['MA20']*0.97, 1)}")
+else: st.info("目前庫存空空，快去左側登記骨頭汪！")
 
+# 【中層：100 分選股選單】
 st.markdown("---")
+st.subheader("🧧 即時財運 100 分掃描")
+scan_list_str = st.text_input("輸入掃描清單 (逗號隔開)", "2330, 2603, 2317, 2454, 3231, 1513, 2303")
+scan_list = [s.strip() for s in scan_list_str.split(",")]
 
-# 【下層：不中斷掃描雷達】
-st.subheader("🐕‍🦺 全台股地毯雷達")
-if st.button("🚀 啟動掃描 (掃描中可同時登記庫存)"):
-    codes = get_stock_list()
-    # 這裡用這招：掃描結果會直接在頁面刷新時被 session_state 保護
-    status_area = st.empty()
-    progress_bar = st.progress(0)
-    found = []
+if st.button("🚀 開始精準掃描"):
+    scan_res = [analyze_stock_full(s) for s in scan_list if analyze_stock_full(s)]
+    if scan_res:
+        df_show = pd.DataFrame(scan_res)[["代碼", "現價", "得分", "買點", "風險", "乖離"]]
+        st.dataframe(df_show.style.background_gradient(subset=['得分'], cmap='YlOrRd'))
+
+# 【下層：歷史回測專區】
+st.markdown("---")
+st.subheader("📊 歷史勝率回測 (含停損邏輯)")
+bt_stock = st.selectbox("選擇回測對象", scan_list)
+if st.button(f"🚀 啟動 {bt_stock} 歷史回測"):
+    ticker = yf.Ticker(f"{bt_stock}.TW")
+    df = ticker.history(period="2y", auto_adjust=False)
+    df['MA20'] = df['Close'].rolling(20).mean()
+    df['MA60'] = df['Close'].rolling(60).mean()
+    df['Bias'] = ((df['Close'] - df['MA20']) / df['MA20']) * 100
+    df['Signal'] = (df['MA20'] > df['MA60']) & (df['Bias'] > 0) & (df['Bias'] <= 3.5)
     
-    # 為了讓掃描不被「感覺」中斷，我們把進度顯示做得很明顯
-    for i, c in enumerate(codes):
-        progress = (i + 1) / len(codes)
-        progress_bar.progress(progress)
-        if i % 10 == 0:
-            status_area.markdown(f"🐕 狗狗巡邏中... 當前進度: **{int(progress*100)}%** ({c})")
-        
-        r = diagnose_with_soul(c)
-        if r and "🟢" in r["判定"]:
-            found.append(r)
-            # 每掃到一個就即時更新給主人看，減少等待感
-            st.session_state.scan_results = found 
-            
-    status_area.success("✅ 全台巡邏完畢！")
-
-if st.session_state.scan_results:
-    st.write(f"### 🏆 推薦清單 (共 {len(st.session_state.scan_results)} 檔)")
-    st.table(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "風險等級", "深度分析", "防守價"]])
-
-st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+    trades = []
+    for i in range(len(df) - hold_days):
+        if df['Signal'].iloc[i]:
+            entry = df['Close'].iloc[i]
+            hold_period = df.iloc[i+1 : i+hold_days+1]
+            if hold_period['Low'].min() < entry * (1 - stop_loss/100):
+                trades.append(-stop_loss)
+            else:
+                trades.append(((df['Close'].iloc[i + hold_days] - entry) / entry) * 100)
+    
+    if trades:
+        col1, col2 = st.columns(2)
+        col1.metric("策略勝率", f"{round(len([r for r in trades if r > 0])/len(trades)*100, 1)}%")
+        col2.metric("平均報酬", f"{round(np.mean(trades), 2)}%")
+        st.bar_chart(trades)
