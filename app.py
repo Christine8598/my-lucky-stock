@@ -120,7 +120,7 @@ with st.sidebar:
 st.markdown(f"<h1 style='text-align: center; color: #FF69B4;'>🐾 Christine 財運汪汪選股所 🐾</h1>", unsafe_allow_html=True)
 
 # 【上層：永久庫存卡片】 (保持不變)
-st.subheader("📋 我的永久記憶庫存")
+st.subheader("📋 我的「骨」倉")
 if st.session_state.my_stocks:
     cols = st.columns(4)
     for i, (sid, cost) in enumerate(st.session_state.my_stocks.items()):
@@ -179,3 +179,4 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
