@@ -1,12 +1,15 @@
 name: Daily Stock Scan
-on: [workflow_dispatch] # 讓你手動按按鈕
+on: [workflow_dispatch]
 jobs:
   run-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 安裝必要套件
-        run: pip install yfinance pandas requests lxml beautifulsoup4 numpy
+      - name: 安裝相容套件
+        run: |
+          pip install --upgrade pip
+          # 強制安裝不含新語法的 yfinance 版本
+          pip install yfinance==0.2.36 pandas requests lxml beautifulsoup4 numpy
       - name: 執行
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
