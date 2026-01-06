@@ -94,8 +94,8 @@ def diagnose_logic(sid, df, buy_p=0):
                 stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
             
             # B. 判斷長線還是短線模式
-            # 台積電、鴻海、聯發科強制長線，或得分高且波動穩的也算長線
-            is_long_term = (sid in ["2330", "2317", "2454"]) or (score >= 80 and volatility < 35)
+            # 只要是 00 開頭的 (通常是 ETF) 或者大型權值股，都自動進入長線模式
+is_long_term = sid.startswith("00") or (sid in ["2330", "2317", "2454"]) or (score >= 80 and volatility < 35)
 
             if is_long_term:
                 if profit_loss_ratio >= 1.0:
@@ -241,6 +241,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
