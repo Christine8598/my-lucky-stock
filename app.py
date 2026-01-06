@@ -62,37 +62,7 @@ def diagnose_logic(sid, df, buy_p=0):
         last, prev = df.iloc[-1], df.iloc[-2]
         bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
         
-      # --- [進階] 自動切換長短線停利邏輯 ---
-        stop_signal = ""
-        if buy_p > 0:
-            profit_loss_ratio = (last['Close'] - buy_p) / buy_p
-            
-            # A. 基礎防線：跌幅超過 7% 或 跌破月線 (不論長短線都要跑)
-            if profit_loss_ratio <= -0.07:
-                stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
-            elif last['Close'] < last['MA20']:
-                stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
-            
-            # B. 自動判定模式：
-            # 判斷標準：得分高(>80) 且 波動度低於 35% (穩定成長股)
-            # 或者你可以直接加入市值判斷，這裡先以你的 score 與 volatility 為主
-            is_long_term_beast = (score >= 80) and (volatility < 35)
-
-            if is_long_term_beast:
-                # 【長線模式】：重視趨勢，不輕易叫你停利
-                if profit_loss_ratio >= 0.20:
-                    if bias > 15:
-                        stop_signal = "💎 成長汪：獲利達標但乖離稍大，建議「減碼」而非「全賣」"
-                    else:
-                        stop_signal = "🚀 成長汪：強勢波段中，沒破月線請抱緊！"
-                if profit_loss_ratio >= 1.0:
-                    stop_signal = "👑 傳奇汪：達成翻倍成就！繼續守護財富"
-            else:
-                # 【短線模式】：落袋為安
-                if profit_loss_ratio >= 0.20:
-                    stop_signal = "💰 短線汪：獲利 +20% 達標，汪汪入袋為安！"
-        
-        # 得分與風險計算
+        # --- 1. 先計算數據基礎 (必須先算，後面的停利邏輯才讀得到變數) ---
         returns = df['Close'].pct_change().dropna()
         volatility = returns.std() * np.sqrt(252) * 100
         bones = "🦴" * min(5, max(1, int(volatility / 10)))
@@ -112,14 +82,46 @@ def diagnose_logic(sid, df, buy_p=0):
         if last['Volume'] < prev['Volume']: score -= 10
         score = max(0, min(100, score))
 
+        # --- 2. [自動切換] 停損停利邏輯 ---
+        stop_signal = ""
+        if buy_p > 0:
+            profit_loss_ratio = (last['Close'] - buy_p) / buy_p
+            
+            # A. 基礎防線
+            if profit_loss_ratio <= -0.07:
+                stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
+            elif last['Close'] < last['MA20']:
+                stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
+            
+            # B. 判斷長線還是短線模式
+            # 台積電、鴻海、聯發科強制長線，或得分高且波動穩的也算長線
+            is_long_term = (sid in ["2330", "2317", "2454"]) or (score >= 80 and volatility < 35)
+
+            if is_long_term:
+                if profit_loss_ratio >= 1.0:
+                    stop_signal = "👑 傳奇汪：達成翻倍成就！繼續守護財富"
+                elif profit_loss_ratio >= 0.20:
+                    # 長線模式下，20% 不叫停利，除非乖離真的太誇張
+                    if bias > 15:
+                        stop_signal = "💎 成長汪：獲利達標但乖離稍大，建議減碼非全賣"
+                    else:
+                        stop_signal = "🚀 成長汪：強勢波段中，沒破月線請抱緊！"
+            else:
+                # 一般股票維持原樣
+                if profit_loss_ratio >= 0.20:
+                    stop_signal = "💰 短線汪：獲利 +20% 達標，汪汪入袋為安！"
+
         return {
             "代碼": sid, "現價": round(last['Close'], 1), "得分": score,
             "風險": bones, "乖離": f"{round(bias, 1)}%", "買點": buy_note,
             "判定": "🟢 強勢" if last['Close'] > last['MA20'] else "🔴 轉弱",
             "損益%": round(((last['Close'] - buy_p) / buy_p) * 100, 2) if buy_p > 0 else 0,
-            "警報": stop_signal # 統一稱為警報
+            "警報": stop_signal 
         }
-    except: return None
+    except Exception as e: 
+        # 這裡可以幫你抓出到底哪裡報錯
+        st.error(f"診斷 {sid} 時發生錯誤: {e}")
+        return None
 
 # 這個函數負責「抓資料」
 def diagnose_with_soul(sid, buy_p=0):
@@ -239,6 +241,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
