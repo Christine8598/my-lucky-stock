@@ -32,6 +32,39 @@ def save_memory(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
 
+# --- [新增] 機器人通訊功能 ---
+# 這裡會優先讀取 GitHub 或 Streamlit 的秘密保險箱，如果沒有就留空
+LINE_TOKEN = st.secrets.get("LINE_TOKEN", os.environ.get("LINE_TOKEN", ""))
+USER_ID = st.secrets.get("USER_ID", os.environ.get("USER_ID", ""))
+
+def bark_to_line(r, is_auto=False):
+    """讓機器人汪一聲！"""
+    # 檢查是否有輸入 Token，沒輸入就不執行
+    current_token = line_token if 'line_token' in locals() else LINE_TOKEN
+    current_uid = line_user_id if 'line_user_id' in locals() else USER_ID
+    
+    if not current_token or not current_uid:
+        return
+
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {current_token}"}
+    
+    # 根據掃描類型調整標題
+    title = "⏰【定時巡邏回報】" if is_auto else "🚀【手動尋寶回報】"
+    
+    msg = (f"{title}\n\n"
+           f"🐶 發現標的：{r['代碼']}\n"
+           f"📈 綜合得分：{r['得分']}\n"
+           f"💰 當前現價：{r['現價']}\n"
+           f"🛡️ 停損參考：{round(r['現價']*0.93, 1)}\n"
+           f"📊 乖離率：{r['乖離']}\n\n"
+           f"🐾 汪！這根骨頭香噴噴！")
+    
+    payload = {"to": current_uid, "messages": [{"type": "text", "text": msg}]}
+    try:
+        requests.post(url, headers=headers, json=payload, timeout=5)
+    except:
+        pass
         
 # 初始化 Session State
 if 'my_stocks' not in st.session_state:
@@ -159,6 +192,15 @@ with st.sidebar:
             time.sleep(1)
             st.rerun()
 
+    # --- [新增] 機器人連動設定 ---
+    st.write("---")
+    st.subheader("📲 機器人連動")
+    line_token = st.text_input("Access Token", value=LINE_TOKEN, type="password", help="填入 LINE Channel Access Token")
+    line_user_id = st.text_input("Your User ID", value=USER_ID, help="填入你的 LINE User ID")
+    
+    if st.button("💾 測試並儲存通知"):
+        st.success("汪！設定已暫存，掃描到 90 分標的將會通知！")
+
     if st.session_state.my_stocks:
         st.write("---")
         del_t = st.selectbox("移除：", list(st.session_state.my_stocks.keys()))
@@ -224,7 +266,13 @@ if st.button("🚀 啟動全台尋寶"):
         # 篩選：強勢且得分 >= 75
         if r and "🟢" in r["判定"] and r["得分"] >= 75:
             found.append(r)
-            st.session_state.scan_results = found 
+            
+            # 當得分大於 90 分時，觸發機器人
+            if r["得分"] >= 90:
+                bark_to_line(r) 
+            
+            st.session_state.scan_results = found
+            
             # 即時在佔位空間更新表格內容
             with table_placeholder.container():
                 st.write(f"### 🏆 已發現 {len(found)} 檔高品質骨頭")
@@ -243,6 +291,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
