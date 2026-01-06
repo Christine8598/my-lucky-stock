@@ -1,0 +1,18 @@
+name: Daily Stock Scan
+on: [workflow_dispatch]
+jobs:
+  run-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install
+        run: pip install yfinance pandas requests lxml beautifulsoup4
+      - name: Run
+        env:
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          USER_ID: ${{ secrets.USER_ID }}
+        run: python auto_scan.py
