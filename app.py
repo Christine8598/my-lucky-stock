@@ -62,32 +62,35 @@ def diagnose_logic(sid, df, buy_p=0):
         last, prev = df.iloc[-1], df.iloc[-2]
         bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
         
-        # ---停損停利邏輯 ---
-stop_signal = ""
-if buy_p > 0:
-    profit_loss_ratio = (last['Close'] - buy_p) / buy_p
-    
-    # 1. 基礎防線：跌幅超過 7% 或是 跌破月線
-    if profit_loss_ratio <= -0.07:
-        stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
-    elif last['Close'] < last['MA20']:
-        stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
-    
-    # 2. 聰明停利邏輯 (區分標的)
-    else:
-        # 定義長線績優股名單 (例如台積電、鴻海等)
-        long_term_stocks = ["2330", "2317", "2454"] 
-        
-        if sid in long_term_stocks:
-            # 長線股：只要沒破月線就不叫你賣，但如果獲利翻倍會特別提醒
-            if profit_loss_ratio >= 1.0:
-                stop_signal = "💎 汪！達成翻倍成就！(長期持有中)"
-            elif profit_loss_ratio >= 0.20:
-                stop_signal = "🚀 汪！波段獲利中，守住月線續抱"
-        else:
-            # 一般股：維持原本的 20% 提醒
-            if profit_loss_ratio >= 0.20:
-                stop_signal = "💰 汪汪！獲利入袋？(短線停利 +20%)"
+      # --- [進階] 自動切換長短線停利邏輯 ---
+        stop_signal = ""
+        if buy_p > 0:
+            profit_loss_ratio = (last['Close'] - buy_p) / buy_p
+            
+            # A. 基礎防線：跌幅超過 7% 或 跌破月線 (不論長短線都要跑)
+            if profit_loss_ratio <= -0.07:
+                stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
+            elif last['Close'] < last['MA20']:
+                stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
+            
+            # B. 自動判定模式：
+            # 判斷標準：得分高(>80) 且 波動度低於 35% (穩定成長股)
+            # 或者你可以直接加入市值判斷，這裡先以你的 score 與 volatility 為主
+            is_long_term_beast = (score >= 80) and (volatility < 35)
+
+            if is_long_term_beast:
+                # 【長線模式】：重視趨勢，不輕易叫你停利
+                if profit_loss_ratio >= 0.20:
+                    if bias > 15:
+                        stop_signal = "💎 成長汪：獲利達標但乖離稍大，建議「減碼」而非「全賣」"
+                    else:
+                        stop_signal = "🚀 成長汪：強勢波段中，沒破月線請抱緊！"
+                if profit_loss_ratio >= 1.0:
+                    stop_signal = "👑 傳奇汪：達成翻倍成就！繼續守護財富"
+            else:
+                # 【短線模式】：落袋為安
+                if profit_loss_ratio >= 0.20:
+                    stop_signal = "💰 短線汪：獲利 +20% 達標，汪汪入袋為安！"
         
         # 得分與風險計算
         returns = df['Close'].pct_change().dropna()
@@ -236,6 +239,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
