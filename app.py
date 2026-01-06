@@ -39,49 +39,65 @@ if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 
 # --- 2. 核心診斷邏輯 (100分 + 骨頭風險) ---
-def diagnose_with_soul(sid, buy_p=0):
+def get_market_sentiment():
     try:
-        ticker = yf.Ticker(f"{sid}.TW")
-        df = ticker.history(period="100d", auto_adjust=False)
-        if df.empty or len(df) < 60: return None
+        # 抓取台股加權指數
+        twii = yf.Ticker("^TWII")
+        df = twii.history(period="60d")
+        df['MA20'] = df['Close'].rolling(20).mean()
         
-        # 指標計算
+        last_close = df['Close'].iloc[-1]
+        last_ma20 = df['MA20'].iloc[-1]
+        
+        if last_close > last_ma20:
+            return "🟢 多頭 (大盤在月線上，適合進攻)", True
+        else:
+            return "🔴 空頭 (大盤在月線下，建議保守)", False
+    except:
+        return "⚪ 無法取得大盤資訊", True
+def diagnose_logic(sid, df, buy_p=0):
+    try:
+        if df.empty or len(df) < 60: return None
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
         last, prev = df.iloc[-1], df.iloc[-2]
         bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
         
-        # 🦴 骨頭風險評估 (基於波動率)
+        # --- 停損停利邏輯計算 ---
+        stop_signal = ""
+        if buy_p > 0:
+            profit_loss_ratio = (last['Close'] - buy_p) / buy_p
+            # 1. 停損：虧損達 7% 或 跌破月線
+            if profit_loss_ratio <= -0.07:
+                stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
+            elif last['Close'] < last['MA20']:
+                stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
+            # 2. 停利：獲利達 20% 
+            elif profit_loss_ratio >= 0.20:
+                stop_signal = "💰 汪汪！獲利入袋？(停利 +20%)"
+        
+        # ... (得分與風險計算邏輯)
         returns = df['Close'].pct_change().dropna()
         volatility = returns.std() * np.sqrt(252) * 100
-        bone_count = min(5, max(1, int(volatility / 10)))
-        bones = "🦴" * bone_count
+        bones = "🦴" * min(5, max(1, int(volatility / 10)))
         
-        # 💯 100 分計分邏輯
         score = 0
         if last['MA20'] > last['MA60']: score += 25
         if last['MA60'] > df['MA60'].iloc[-5]: score += 25
         if last['Volume']/1000 > 1000: score += 20
         if bias < 10: score += 10
-        
-        buy_note = "🐾建議稍等回檔"
-        if 0 < bias <= 3.5:
-            score += 20
-            buy_note = "🎯 絕佳買點"
-        elif bias > 10: buy_note = "🚨 乖離過大"
+        if 0 < bias <= 3.5: score += 20
         if last['Volume'] < prev['Volume']: score -= 10
         score = max(0, min(100, score))
 
-        res = {
+        return {
             "代碼": sid, "現價": round(last['Close'], 1), "得分": score,
-            "買點": buy_note, "風險": bones, "乖離": f"{round(bias, 1)}%",
-            "判定": "🟢 強勢" if last['Close'] > last['MA20'] else "🔴 轉弱"
+            "風險": bones, "乖離": f"{round(bias, 1)}%",
+            "判定": "🟢 強勢" if last['Close'] > last['MA20'] else "🔴 轉弱",
+            "損益%": round(((last['Close'] - buy_p) / buy_p) * 100, 2) if buy_p > 0 else 0,
+            "警報": stop_signal
         }
-        if buy_p > 0:
-            res["損益%"] = ((last['Close'] - buy_p) / buy_p) * 100
-        return res
     except: return None
-
 @st.cache_data(ttl=3600)
 def get_stock_list():
     try:
@@ -119,7 +135,7 @@ with st.sidebar:
 # --- 4. 主畫面 ---
 st.markdown(f"<h1 style='text-align: center; color: #FF69B4;'>🐾 Christine 財運汪汪選股所 🐾</h1>", unsafe_allow_html=True)
 
-# 【上層：永久庫存卡片】 (保持不變)
+# 【上層：永久庫存卡片】
 st.subheader("📋 我的「骨」倉")
 if st.session_state.my_stocks:
     cols = st.columns(4)
@@ -127,14 +143,23 @@ if st.session_state.my_stocks:
         res = diagnose_with_soul(sid, cost)
         if res:
             with cols[i % 4]:
-                st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{round(res['損益%'],2)}%")
+                # 如果有停損警報，改變顯示顏色或加上警語
+                delta_color = "normal" if "🆘" not in res['停損警報'] else "inverse"
+                st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{res['損益%']}%", delta_color=delta_color)
+                
                 with st.expander("🔍 深度分析"):
-                    st.write(f"**得分:** {res['得分']} | **風險:** {res['風險']}")
-                    st.write(f"**判定:** {res['買點']}")
+                    if res['停損警報']:
+                        st.error(res['停損警報']) # 用紅色框框顯示停損警訊
+                    st.write(f"得分: {res['得分']} | 風險: {res['風險']}")
+                    st.write(f"判定: {res['買點']}")
 else: st.info("💡 目前沒有存檔的骨頭汪。")
 
 st.markdown("---")
+market_status, is_bull = get_market_sentiment()
+st.info(f"📊 **目前大盤環境：{market_status}**")
 
+if not is_bull:
+    st.warning("⚠️ 警語：目前大盤走勢疲軟，選股雷達發現的標的請務必謹慎小量參與。")
 # 【下層：不中斷掃描雷達 - 優化版】
 st.subheader("🐕‍🦺 汪星人台股尋寶雷達")
 
@@ -179,5 +204,6 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
