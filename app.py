@@ -38,23 +38,9 @@ if 'my_stocks' not in st.session_state:
 if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 
-# --- 2. 核心診斷邏輯 (100分 + 骨頭風險) ---
-def get_market_sentiment():
-    try:
-        # 抓取台股加權指數
-        twii = yf.Ticker("^TWII")
-        df = twii.history(period="60d")
-        df['MA20'] = df['Close'].rolling(20).mean()
-        
-        last_close = df['Close'].iloc[-1]
-        last_ma20 = df['MA20'].iloc[-1]
-        
-        if last_close > last_ma20:
-            return "🟢 多頭 (大盤在月線上，適合進攻)", True
-        else:
-            return "🔴 空頭 (大盤在月線下，建議保守)", False
-    except:
-        return "⚪ 無法取得大盤資訊", True
+# --- 2. 核心診斷邏輯 (修正版) ---
+
+# 這個函數負責「算命」邏輯
 def diagnose_logic(sid, df, buy_p=0):
     try:
         if df.empty or len(df) < 60: return None
@@ -67,16 +53,14 @@ def diagnose_logic(sid, df, buy_p=0):
         stop_signal = ""
         if buy_p > 0:
             profit_loss_ratio = (last['Close'] - buy_p) / buy_p
-            # 1. 停損：虧損達 7% 或 跌破月線
             if profit_loss_ratio <= -0.07:
                 stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
             elif last['Close'] < last['MA20']:
                 stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
-            # 2. 停利：獲利達 20% 
             elif profit_loss_ratio >= 0.20:
                 stop_signal = "💰 汪汪！獲利入袋？(停利 +20%)"
         
-        # ... (得分與風險計算邏輯)
+        # 得分與風險計算
         returns = df['Close'].pct_change().dropna()
         volatility = returns.std() * np.sqrt(252) * 100
         bones = "🦴" * min(5, max(1, int(volatility / 10)))
@@ -86,18 +70,33 @@ def diagnose_logic(sid, df, buy_p=0):
         if last['MA60'] > df['MA60'].iloc[-5]: score += 25
         if last['Volume']/1000 > 1000: score += 20
         if bias < 10: score += 10
-        if 0 < bias <= 3.5: score += 20
+        
+        buy_note = "🐾建議稍等回檔"
+        if 0 < bias <= 3.5:
+            score += 20
+            buy_note = "🎯 絕佳買點"
+        elif bias > 10: buy_note = "🚨 乖離過大"
+        
         if last['Volume'] < prev['Volume']: score -= 10
         score = max(0, min(100, score))
 
         return {
             "代碼": sid, "現價": round(last['Close'], 1), "得分": score,
-            "風險": bones, "乖離": f"{round(bias, 1)}%",
+            "風險": bones, "乖離": f"{round(bias, 1)}%", "買點": buy_note,
             "判定": "🟢 強勢" if last['Close'] > last['MA20'] else "🔴 轉弱",
             "損益%": round(((last['Close'] - buy_p) / buy_p) * 100, 2) if buy_p > 0 else 0,
-            "警報": stop_signal
+            "警報": stop_signal # 統一稱為警報
         }
     except: return None
+
+# 這個函數負責「抓資料」
+def diagnose_with_soul(sid, buy_p=0):
+    try:
+        ticker = yf.Ticker(f"{sid}.TW")
+        df = ticker.history(period="100d", auto_adjust=False)
+        return diagnose_logic(sid, df, buy_p)
+    except: return None
+        
 @st.cache_data(ttl=3600)
 def get_stock_list():
     try:
@@ -143,13 +142,17 @@ if st.session_state.my_stocks:
         res = diagnose_with_soul(sid, cost)
         if res:
             with cols[i % 4]:
-                # 如果有停損警報，改變顯示顏色或加上警語
-                delta_color = "normal" if "🆘" not in res['停損警報'] else "inverse"
-                st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{res['損益%']}%", delta_color=delta_color)
+                # 修正：根據 "警報" 欄位判斷顏色
+                d_color = "inverse" if res['警報'] != "" else "normal"
+                st.metric(label=f"🐶 {sid}", value=f"{res['現價']}", delta=f"{res['損益%']}%", delta_color=d_color)
                 
                 with st.expander("🔍 深度分析"):
-                    if res['停損警報']:
-                        st.error(res['停損警報']) # 用紅色框框顯示停損警訊
+                    # 修正：顯示 "警報" 內容
+                    if res['警報']:
+                        if "🆘" in res['警報'] or "⚠️" in res['警報']:
+                            st.error(res['警報'])
+                        else:
+                            st.success(res['警報'])
                     st.write(f"得分: {res['得分']} | 風險: {res['風險']}")
                     st.write(f"判定: {res['買點']}")
 else: st.info("💡 目前沒有存檔的骨頭汪。")
@@ -198,12 +201,13 @@ if st.button("🚀 啟動全台尋寶"):
         st.write(f"### 🏁 全台尋寶總表 (共 {len(found)} 檔)")
         st.dataframe(pd.DataFrame(found)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
-# 如果頁面重新整理，但之前已經有掃描結果，就顯示出來（這能保證結果不消失）
+# 如果頁面重新整理，但之前已經有掃描結果，就顯示出來
 elif st.session_state.scan_results:
     st.write(f"### 🏁 上次巡邏結果 (共 {len(st.session_state.scan_results)} 檔)")
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
