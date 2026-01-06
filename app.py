@@ -32,20 +32,6 @@ def save_memory(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
 
-def bark_to_line(token, user_id, r):
-    """讓機器人汪一聲！"""
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-    msg = (f"🌟【手動掃描回報】🌟\n\n"
-           f"🐶 標的：{r['代碼']}\n"
-           f"📈 得分：{r['得分']}\n"
-           f"💰 現價：{r['現價']}\n"
-           f"🐾 汪！這根骨頭看起來很不錯！")
-    payload = {"to": user_id, "messages": [{"type": "text", "text": msg}]}
-    try:
-        requests.post(url, headers=headers, json=payload, timeout=5)
-    except:
-        pass
         
 # 初始化 Session State
 if 'my_stocks' not in st.session_state:
@@ -257,6 +243,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
