@@ -62,16 +62,32 @@ def diagnose_logic(sid, df, buy_p=0):
         last, prev = df.iloc[-1], df.iloc[-2]
         bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
         
-        # --- 停損停利邏輯計算 ---
-        stop_signal = ""
-        if buy_p > 0:
-            profit_loss_ratio = (last['Close'] - buy_p) / buy_p
-            if profit_loss_ratio <= -0.07:
-                stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
-            elif last['Close'] < last['MA20']:
-                stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
+        # ---停損停利邏輯 ---
+stop_signal = ""
+if buy_p > 0:
+    profit_loss_ratio = (last['Close'] - buy_p) / buy_p
+    
+    # 1. 基礎防線：跌幅超過 7% 或是 跌破月線
+    if profit_loss_ratio <= -0.07:
+        stop_signal = "🆘 汪！跌幅超標！(停損 -7%)"
+    elif last['Close'] < last['MA20']:
+        stop_signal = "⚠️ 汪！破月線了！(趨勢轉弱)"
+    
+    # 2. 聰明停利邏輯 (區分標的)
+    else:
+        # 定義長線績優股名單 (例如台積電、鴻海等)
+        long_term_stocks = ["2330", "2317", "2454"] 
+        
+        if sid in long_term_stocks:
+            # 長線股：只要沒破月線就不叫你賣，但如果獲利翻倍會特別提醒
+            if profit_loss_ratio >= 1.0:
+                stop_signal = "💎 汪！達成翻倍成就！(長期持有中)"
             elif profit_loss_ratio >= 0.20:
-                stop_signal = "💰 汪汪！獲利入袋？(停利 +20%)"
+                stop_signal = "🚀 汪！波段獲利中，守住月線續抱"
+        else:
+            # 一般股：維持原本的 20% 提醒
+            if profit_loss_ratio >= 0.20:
+                stop_signal = "💰 汪汪！獲利入袋？(短線停利 +20%)"
         
         # 得分與風險計算
         returns = df['Close'].pct_change().dropna()
@@ -220,6 +236,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
