@@ -1,47 +1,36 @@
+import sys
+# ⭐ 強制相容補丁：讓 Python 3.9 認識新語法
+if sys.version_info < (3, 10):
+    import typing
+    typing.Union = typing.Any 
+
 import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests
 import os
-import sys
 
 # 1. 讀取 Secrets
 LINE_TOKEN = os.environ.get('LINE_TOKEN')
 USER_ID = os.environ.get('USER_ID')
 
 def bark_to_line(r):
-    if not LINE_TOKEN or not USER_ID:
-        print("⚠️ 找不到 LINE_TOKEN 或 USER_ID")
-        return
+    if not LINE_TOKEN or not USER_ID: return
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": "Bearer " + LINE_TOKEN}
-    
-    msg = "⏰【汪汪巡邏】\n\n發現標的：" + str(r['代碼']) + "\n得分：" + str(r['得分']) + "\n現價：" + str(r['現價']) + "\n🐾 汪！"
-    
+    headers = {"Content-Type": "application/json", "Authorization": "Bearer " + str(LINE_TOKEN)}
+    msg = "🐶 汪汪發現強勢股：" + str(r['代碼']) + "\n📈 評分：" + str(r['得分']) + "\n💰 現價：" + str(r['現價'])
     payload = {"to": USER_ID, "messages": [{"type": "text", "text": msg}]}
-    res = requests.post(url, headers=headers, json=payload)
-    print("📡 LINE 狀態:", res.status_code)
-
-def diagnose_logic(sid, df):
-    try:
-        if df.empty or len(df) < 60: return None
-        df['MA20'] = df['Close'].rolling(20).mean()
-        df['MA60'] = df['Close'].rolling(60).mean()
-        last = df.iloc[-1]
-        
-        score = 0
-        if last['MA20'] > last['MA60']: score += 50
-        
-        return {"代碼": sid, "現價": round(last['Close'], 1), "得分": score}
-    except: return None
+    requests.post(url, headers=headers, json=payload)
 
 if __name__ == "__main__":
-    print("🐾 正在測試版本: " + sys.version)
-    # 這裡放幾支權值股測試，確保一定會跑出結果
-    test_list = ["2330", "2317", "2454"]
+    print("🐾 正在使用 Python 版本: " + sys.version)
+    # 直接用最簡單的測試
+    test_list = ["2330", "2317"]
     for sid in test_list:
-        ticker = yf.Ticker(sid + ".TW")
-        df = ticker.history(period="100d")
-        res = diagnose_logic(sid, df)
-        if res:
-            bark_to_line(res)
+        try:
+            df = yf.Ticker(sid + ".TW").history(period="60d")
+            score = 100 if df['Close'].iloc[-1] > df['Close'].mean() else 50
+            bark_to_line({"代碼": sid, "得分": score, "現價": round(df['Close'].iloc[-1], 1)})
+            print("✅ 測試發送成功: " + sid)
+        except Exception as e:
+            print("❌ 出錯了: " + str(e))
