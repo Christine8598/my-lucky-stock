@@ -39,8 +39,21 @@ if 'scan_results' not in st.session_state:
     st.session_state.scan_results = None
 
 # --- 2. 核心診斷邏輯 (修正版) ---
-
-# 這個函數負責「算命」邏輯
+# 必須先定義這個函數
+def get_market_sentiment():
+    try:
+        twii = yf.Ticker("^TWII")
+        df = twii.history(period="60d")
+        df['MA20'] = df['Close'].rolling(20).mean()
+        last_close = df['Close'].iloc[-1]
+        last_ma20 = df['MA20'].iloc[-1]
+        if last_close > last_ma20:
+            return "🟢 多頭 (大盤在月線上，適合進攻)", True
+        else:
+            return "🔴 空頭 (大盤在月線下，建議保守)", False
+    except:
+        return "⚪ 無法取得大盤資訊", True
+        
 def diagnose_logic(sid, df, buy_p=0):
     try:
         if df.empty or len(df) < 60: return None
@@ -207,6 +220,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
