@@ -1,3 +1,11 @@
+import sys
+
+# 解決 yfinance 在舊版 Python 的語法衝突
+if sys.version_info < (3, 10):
+    import typing
+    if not hasattr(typing, 'TypeAlias'):
+        typing.TypeAlias = typing.Any
+        
 import yfinance as yf
 import pandas as pd
 import numpy as np
