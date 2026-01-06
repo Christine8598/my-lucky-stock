@@ -1,48 +1,38 @@
-import sys
-
-# ⭐【核心修復】這段補丁會騙過 yfinance，解決 Python 3.9 的語法報錯問題
-if sys.version_info < (3, 10):
-    import typing
-    # 建立一個假的 Union 類型來應付新版語法
-    if not hasattr(typing, 'TypeAlias'):
-        typing.TypeAlias = typing.Any
-    # 解決截圖中報錯的 "|" 符號衝突
-    class GenericAliasPatch:
-        def __or__(self, other): return typing.Any
-    sys.modules['types'].GenericAlias = GenericAliasPatch()
-
-# --- 現在開始原本的程式碼 ---
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import requests
 import os
 
-# 從 Secrets 拿鑰匙
+# 1. 讀取 Secrets
 LINE_TOKEN = os.environ.get('LINE_TOKEN')
 USER_ID = os.environ.get('USER_ID')
 
-def bark_to_line(sid, score, price):
-    if not LINE_TOKEN or not USER_ID: return
+def bark_to_line(msg):
+    if not LINE_TOKEN or not USER_ID:
+        print("⚠️ 缺少 Secrets 設定")
+        return
     url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {LINE_TOKEN}"}
-    msg = f"🐶 汪汪巡邏報：\n\n發現標的：{sid}\n評分：{score}\n現價：{price}\n🐾 汪！"
+    headers = {"Content-Type": "application/json", "Authorization": "Bearer " + LINE_TOKEN}
     payload = {"to": USER_ID, "messages": [{"type": "text", "text": msg}]}
-    requests.post(url, headers=headers, json=payload)
+    res = requests.post(url, headers=headers, json=payload)
+    print("📡 LINE 狀態碼:", res.status_code)
 
 if __name__ == "__main__":
-    print(f"🐾 正在使用 Python {sys.version} 執行...")
-    # 我們先用兩支最強的標的來測試通訊
-    test_list = ["2330", "2317"] 
+    print("🐾 汪汪救援隊啟動！")
     
-    for sid in test_list:
+    # 測試兩支最穩的股票
+    stocks = ["2330", "2317"]
+    report = "🐶【汪汪巡邏回報】\n"
+    
+    for sid in stocks:
         try:
-            ticker = yf.Ticker(f"{sid}.TW")
-            df = ticker.history(period="60d")
+            # 使用舊版套件的標準抓取方式
+            df = yf.download(sid + ".TW", period="1mo", progress=False)
             if not df.empty:
-                last_price = round(df['Close'].iloc[-1], 1)
-                # 測試邏輯：只要有收盤價就發送
-                bark_to_line(sid, "測試中", last_price)
-                print(f"✅ {sid} 掃描成功並嘗試發送")
+                price = round(float(df['Close'].iloc[-1]), 1)
+                report += "\n📍 " + sid + " 現價: " + str(price)
         except Exception as e:
-            print(f"❌ {sid} 發生錯誤: {str(e)}")
+            print("❌ 抓取 " + sid + " 出錯: " + str(e))
+    
+    report += "\n\n🐾 汪！連線測試成功！"
+    bark_to_line(report)
