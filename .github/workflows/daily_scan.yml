@@ -5,12 +5,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: 安裝相容套件
-        run: |
-          pip install --upgrade pip
-          # 強制安裝不含新語法的 yfinance 版本
-          pip install yfinance==0.2.36 pandas requests lxml beautifulsoup4 numpy
-      - name: 執行
+      - name: 安裝套件
+        run: pip install yfinance==0.2.36 pandas requests lxml beautifulsoup4
+      - name: 執行程式
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           USER_ID: ${{ secrets.USER_ID }}
