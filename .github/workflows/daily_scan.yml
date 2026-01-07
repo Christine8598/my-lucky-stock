@@ -4,7 +4,7 @@ on:
   schedule:
     # 台灣時間 09:00 (UTC 01:00)
     - cron: '0 1 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # 保留手動測試按鈕
 
 jobs:
   run-logic:
@@ -16,10 +16,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.10' # <--- 修正這裡：升級到 3.10 以上
 
       - name: Install dependencies
-        run: pip install yfinance pandas requests lxml numpy
+        run: |
+          pip install yfinance pandas requests lxml beautifulsoup4 numpy
 
       - name: Start Scanning
         env:
