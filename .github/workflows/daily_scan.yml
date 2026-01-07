@@ -3,7 +3,7 @@ name: Daily Stock Scan
 on:
   schedule:
     # 台灣時間 09:00 (UTC 01:00)
-    - cron: '0 1 * * *'
+    - cron: '0 1 * * 1-5'
   workflow_dispatch: # 保留手動測試按鈕
 
 jobs:
