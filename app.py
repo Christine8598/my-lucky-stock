@@ -192,15 +192,6 @@ with st.sidebar:
             time.sleep(1)
             st.rerun()
 
-    # --- [新增] 機器人連動設定 ---
-    st.write("---")
-    st.subheader("📲 機器人連動")
-    line_token = st.text_input("Access Token", value=LINE_TOKEN, type="password", help="填入 LINE Channel Access Token")
-    line_user_id = st.text_input("Your User ID", value=USER_ID, help="填入你的 LINE User ID")
-    
-    if st.button("💾 測試並儲存通知"):
-        st.success("汪！設定已暫存，掃描到 90 分標的將會通知！")
-
     if st.session_state.my_stocks:
         st.write("---")
         del_t = st.selectbox("移除：", list(st.session_state.my_stocks.keys()))
@@ -291,6 +282,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
