@@ -2,27 +2,26 @@ name: Daily Stock Scan
 
 on:
   schedule:
-    # 每天早上 01:00 UTC = 台灣時間早上 09:00
+    # 台灣時間 09:00 (UTC 01:00)
     - cron: '0 1 * * *'
   workflow_dispatch:
 
 jobs:
-  build:
+  run-logic:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v2
+      - name: Setup Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: |
-          pip install yfinance pandas requests lxml
+        run: pip install yfinance pandas requests lxml numpy
 
-      - name: Run Scan
+      - name: Start Scanning
         env:
           LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
           USER_ID: ${{ secrets.USER_ID }}
