@@ -8,6 +8,7 @@ import time
 import requests
 import ssl
 import datetime
+import pandas_ta as ta
 
 # --- 0. 基礎設定與 SSL 修復 ---
 try:
@@ -91,32 +92,85 @@ def get_market_sentiment():
 def diagnose_logic(sid, df, buy_p=0):
     try:
         if df.empty or len(df) < 60: return None
+        
+        # --- [1. 計算技術指標] ---
+        # 計算 KD (9, 3, 3) 與 MACD (12, 26, 9)
+        kd = ta.stoch(df['High'], df['Low'], df['Close'], k=9, d=3)
+        macd = ta.macd(df['Close'], fast=12, slow=26, signal=9)
+        df = pd.concat([df, kd, macd], axis=1)
+        
+        # 定義欄位名稱
+        k_col, d_col = 'STOCHk_9_3_3', 'STOCHd_9_3_3'
+        macd_h = 'MACDh_12_26_9'
+        
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
         last, prev = df.iloc[-1], df.iloc[-2]
         bias = ((last['Close'] - last['MA20']) / last['MA20']) * 100
         
-        # --- 1. 計算得分與風險 (必須先定義 score 和 volatility) ---
+        # --- [2. 原有功能：風險骨頭計算] ---
         returns = df['Close'].pct_change().dropna()
         volatility = returns.std() * np.sqrt(252) * 100
         bones = "🦴" * min(5, max(1, int(volatility / 10)))
         
+        # --- [3. 綜合得分邏輯：融合兩者] ---
         score = 0
-        if last['MA20'] > last['MA60']: score += 25
-        if last['MA60'] > df['MA60'].iloc[-5]: score += 25
-        if last['Volume']/1000 > 1000: score += 20
-        if bias < 10: score += 10
+        # A. 趨勢分 (原有的 MA 邏輯) - 佔 40分
+        if last['MA20'] > last['MA60']: score += 20
+        if last['MA60'] > df['MA60'].iloc[-5]: score += 20
         
-        buy_note = "🐾建議稍等回檔"
-        if 0 < bias <= 3.5:
-            score += 20
-            buy_note = "🎯 絕佳買點"
-        elif bias > 10: buy_note = "🚨 乖離過大"
+        # B. 動能分 ( KD/MACD 邏輯) - 佔 30分
+        if last[k_col] > last[d_col]: score += 15  # KD 金叉
+        if last[macd_h] > 0: score += 15           # MACD 紅柱
         
+        # C. 體質分 (原有的量能與乖離) - 佔 30分
+        if last['Volume']/1000 > 1000: score += 15
+        if 0 < bias <= 5: score += 15
+        
+        # 原有的量能扣分機制
         if last['Volume'] < prev['Volume']: score -= 10
         score = max(0, min(100, score))
 
-        # --- 2. [自動切換] 停損停利邏輯 ---
+        # --- [4. 買點筆記：精準化判定] ---
+        buy_note = "🐾 建議稍等回檔"
+        # 融合判斷：低檔金叉且趨勢向上
+        if last[k_col] < 35 and last[k_col] > last[d_col] and prev[k_col] <= prev[d_col]:
+            buy_note = "🔥 低檔 KD 金叉 (絕佳)"
+        elif last[macd_h] > 0 and prev[macd_h] <= 0:
+            buy_note = "🚀 MACD 轉紅 (起漲點)"
+        elif 0 < bias <= 3.5:
+            buy_note = "🎯 絕佳回測買點"
+        elif bias > 10: 
+            buy_note = "🚨 乖離過大禁追"
+
+        # --- [5. 原有功能：自動停損停利] ---
+        stop_signal = ""
+        if buy_p > 0:
+            p_l_ratio = (last['Close'] - buy_p) / buy_p
+            if p_l_ratio <= -0.07:
+                stop_signal = "🆘 汪！停損 -7%！"
+            elif last['Close'] < last['MA20']:
+                stop_signal = "⚠️ 破月線了！(趨勢轉弱)"
+            elif p_l_ratio >= 0.20:
+                stop_signal = "💰 獲利 +20% 達標！"
+
+        return {
+            "代碼": sid, 
+            "現價": round(last['Close'], 1), 
+            "得分": score,
+            "風險": bones, 
+            "KD": f"{int(last[k_col])}", 
+            "MACD": "🔴" if last[macd_h] > 0 else "🟢",
+            "乖離": f"{round(bias, 1)}%", 
+            "買點": buy_note,
+            "判定": "🟢 強勢" if last['Close'] > last['MA20'] else "🔴 轉弱",
+            "損益%": round(((last['Close'] - buy_p) / buy_p) * 100, 2) if buy_p > 0 else 0,
+            "警報": stop_signal
+        }
+    except Exception as e:
+        return None
+
+        # --- 2.停損停利邏輯 ---
         stop_signal = ""
         if buy_p > 0:
             profit_loss_ratio = (last['Close'] - buy_p) / buy_p
@@ -282,6 +336,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
