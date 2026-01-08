@@ -32,8 +32,8 @@ def save_memory(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f)
 
-# --- [新增] 機器人通訊功能 ---
-# 這裡會優先讀取 GitHub 或 Streamlit 的秘密保險箱，如果沒有就留空
+# --- 機器人通訊功能 ---
+# 這裡會優先讀取 GitHub 或 Streamlit 的秘密保險箱
 LINE_TOKEN = st.secrets.get("LINE_TOKEN", os.environ.get("LINE_TOKEN", ""))
 USER_ID = st.secrets.get("USER_ID", os.environ.get("USER_ID", ""))
 
@@ -282,6 +282,7 @@ elif st.session_state.scan_results:
     st.dataframe(pd.DataFrame(st.session_state.scan_results)[["代碼", "現價", "得分", "風險", "買點", "乖離"]])
 
 st.caption(f"🕒 更新時間：{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 汪！")
+
 
 
 
